@@ -2,6 +2,8 @@ Options -Indexes
 
 <IfModule mod_rewrite.c>
   RewriteEngine On
+  # API pública (document root = esta carpeta tiktok-system)
+  RewriteRule ^api/stats/?$ src/api/stats.php [L,QSA]
   RewriteRule ^config/ - [F,L]
   RewriteRule ^src/ - [F,L]
   RewriteRule ^vendor/ - [F,L]

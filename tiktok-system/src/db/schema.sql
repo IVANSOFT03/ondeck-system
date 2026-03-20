@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS queue (
   drive_file_name VARCHAR(500) NOT NULL,
   uploader_email  VARCHAR(255) NOT NULL,
   uploader_name   VARCHAR(255) NOT NULL,
+  country         VARCHAR(100) NULL,
   mime_type       VARCHAR(100) NOT NULL,
   status          ENUM('pending','processing','done','failed') NOT NULL DEFAULT 'pending',
   tiktok_video_id VARCHAR(255) NULL,
