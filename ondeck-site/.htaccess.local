@@ -1,0 +1,25 @@
+# Desarrollo local (localhost sin HTTPS)
+# Renombra este archivo a `.htaccess` mientras trabajas en local,
+# o copia su contenido sobre `.htaccess`.
+# En producción usa el archivo `.htaccess` (versión con HTTPS).
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # Sin redirección HTTPS (Apache local suele ser http://localhost)
+
+    # index.php -> / (canonical)
+    RewriteCond %{THE_REQUEST} \s/+index\.php[\s?] [NC]
+    RewriteRule ^index\.php$ / [R=301,L]
+
+    # *.php -> misma ruta sin extensión
+    RewriteCond %{THE_REQUEST} \s/+(.+?)\.php[\s?] [NC]
+    RewriteRule ^(.+)\.php$ /$1 [R=301,L]
+
+    # /privacy, /terms, etc. -> archivo .php correspondiente
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_FILENAME}.php -f
+    RewriteRule ^([^/]+)/?$ $1.php [L,QSA]
+</IfModule>

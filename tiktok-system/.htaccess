@@ -1,0 +1,9 @@
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteRule ^config/ - [F,L]
+  RewriteRule ^src/ - [F,L]
+  RewriteRule ^vendor/ - [F,L]
+</IfModule>
+
