@@ -2,6 +2,10 @@
 
 declare(strict_types=1);
 
+/**
+ * Publicación vía Content Posting API: subida a inbox (borrador) con scope OAuth
+ * `user.info.basic,video.upload` (ver src/auth/login.php). No usa Direct Post (video.publish).
+ */
 class TikTokService
 {
   private string $accessToken;
@@ -221,9 +225,22 @@ class TikTokService
     return 'https://www.tiktok.com/video/' . $videoId;
   }
 
+  /** Enlace al perfil del creador (p. ej. tras subida a inbox sin post_id público aún). */
+  private function buildCreatorProfileUrl(): string
+  {
+    $username = $this->getCreatorUsername();
+    if ($username !== '') {
+      return 'https://www.tiktok.com/@' . $username;
+    }
+
+    return 'https://www.tiktok.com';
+  }
+
   /**
-   * Ejecuta los 3 pasos del flujo.
-   * Devuelve ['success'=>true, 'video_id'=>'...', 'url'=>'...']
+   * Sube el video al inbox de TikTok (borrador; el creador lo termina en la app).
+   * Flujo: inbox init → PUT a upload_url → polling /status/fetch/ hasta SEND_TO_USER_INBOX o PUBLISH_COMPLETE.
+   *
+   * Devuelve ['success'=>true, 'video_id'=>'...', 'url'=>'...'] (video_id puede ser vacío si solo hay borrador en inbox)
    * o ['success'=>false, 'error'=>'...'].
    */
   public function publishVideo(string $filePath, string $mimeType): array
@@ -242,29 +259,17 @@ class TikTokService
       return ['success' => false, 'error' => 'El video supera 500MB y fue rechazado.'];
     }
 
-    // Variar caption para evitar patrones idénticos.
-    $baseName = pathinfo($filePath, PATHINFO_FILENAME);
-    $nowDate = date('Y-m-d');
-    $title = trim($baseName) !== '' ? ($baseName . ' - ' . $nowDate) : ('TikTok colaborativo - ' . $nowDate);
-
-    // 1) Inicializar upload
+    // 1) Inicializar subida a inbox (scope video.upload; no requiere aprobación Direct Post / video.publish)
     $initPayload = [
-      'post_info' => [
-        'privacy_level' => TIKTOK_PRIVACY_LEVEL,
-        'disable_duet' => true,
-        'disable_stitch' => true,
-        'disable_comment' => false,
-        'title' => $title,
-      ],
       'source_info' => [
         'source' => 'FILE_UPLOAD',
         'video_size' => (int)$videoSize,
-        'chunk_size' => (int)$videoSize, // total_chunk_count=1 según especificación.
+        'chunk_size' => (int)$videoSize,
         'total_chunk_count' => 1,
       ],
     ];
 
-    $initResp = $this->requestJson('POST', '/v2/post/publish/video/init/', $initPayload, true);
+    $initResp = $this->requestJson('POST', '/v2/post/publish/inbox/video/init/', $initPayload, true);
 
     $initErrCode = $initResp['error']['code'] ?? null;
     if ($initErrCode !== 'ok') {
@@ -285,7 +290,7 @@ class TikTokService
       return ['success' => false, 'error' => 'Error al subir el archivo a TikTok.'];
     }
 
-    // 3) Polling hasta PUBLISH_COMPLETE o FAILED
+    // 3) Polling: upload a inbox → SEND_TO_USER_INBOX; si el usuario publica luego desde la app → PUBLISH_COMPLETE
     $maxAttempts = 20;
     for ($attempt = 0; $attempt < $maxAttempts; $attempt++) {
       if ($attempt > 0) {
@@ -301,6 +306,15 @@ class TikTokService
 
       if (!is_string($status)) {
         continue;
+      }
+
+      // Contenido subido a borradores: notificación en inbox del creador (documentación Upload Content).
+      if ($status === 'SEND_TO_USER_INBOX') {
+        return [
+          'success' => true,
+          'video_id' => $publishId,
+          'url' => $this->buildCreatorProfileUrl(),
+        ];
       }
 
       if ($status === 'PUBLISH_COMPLETE') {
@@ -327,9 +341,11 @@ class TikTokService
         $reason = $statusData['fail_reason'] ?? 'FAILED sin fail_reason.';
         return ['success' => false, 'error' => 'TikTok publish FAILED: ' . $reason];
       }
+
+      // PROCESSING_UPLOAD / PROCESSING_DOWNLOAD: seguir esperando
     }
 
-    return ['success' => false, 'error' => 'Polling TikTok agotó intentos (sin PUBLISH_COMPLETE).'];
+    return ['success' => false, 'error' => 'Polling TikTok agotó intentos (sin SEND_TO_USER_INBOX ni PUBLISH_COMPLETE).'];
   }
 
   private function uploadBinaryToUrl(string $uploadUrl, string $filePath, string $mimeType, int $size): bool

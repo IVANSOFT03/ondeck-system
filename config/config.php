@@ -59,8 +59,7 @@ define('MAIL_FROM_NAME', require_env('MAIL_FROM_NAME'));
 // Constantes varias
 define('TIKTOK_STATE_PATH', $ROOT_DIR . '/config/.tiktok_state.json');
 
-// Seguridad: restringimos privacidad por defecto para desarrollo.
-// Cuando TikTok apruebe `video.publish`, cambia esta constante a PUBLIC_TO_EVERYONE.
+// Reservada por si en el futuro se usa Direct Post (video.publish) desde la app.
 define('TIKTOK_PRIVACY_LEVEL', 'SELF_ONLY');
 
 define('TIKTOK_API_BASE_URL', 'https://open.tiktokapis.com');
