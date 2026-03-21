@@ -9,6 +9,11 @@ require_once dirname(__DIR__, 2) . '/src/services/DriveService.php';
 require_once dirname(__DIR__, 2) . '/src/services/TikTokService.php';
 require_once dirname(__DIR__, 2) . '/src/services/MailService.php';
 
+function getDb(): PDO
+{
+  return Database::getInstance()->ensureFreshPdo();
+}
+
 $lockFile = PUBLISH_LOCK_PATH;
 
 if (file_exists($lockFile)) {
@@ -57,7 +62,7 @@ try {
 
   if (!$drive->downloadFile($driveFileId, $tmpFilePath)) {
     $err = 'Drive downloadFile falló.';
-    $fail = $db->prepare("UPDATE queue SET status='failed', error_message=? WHERE id=?");
+    $fail = getDb()->prepare("UPDATE queue SET status='failed', error_message=? WHERE id=?");
     $fail->execute([$err, $jobId]);
     exit(0);
   }
@@ -69,7 +74,7 @@ try {
     $videoId = (string)($publishResult['video_id'] ?? '');
     $url = (string)($publishResult['url'] ?? '');
 
-    $done = $db->prepare(
+    $done = getDb()->prepare(
       'UPDATE queue
        SET status=?,
            tiktok_video_id=?,
@@ -91,7 +96,7 @@ try {
   } else {
     $err = (string)($publishResult['error'] ?? 'TikTok publish falló.');
 
-    $fail = $db->prepare("UPDATE queue SET status='failed', error_message=? WHERE id=?");
+    $fail = getDb()->prepare("UPDATE queue SET status='failed', error_message=? WHERE id=?");
     $fail->execute([$err, $jobId]);
   }
 
