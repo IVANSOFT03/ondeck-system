@@ -24,8 +24,8 @@ $dotenv = Dotenv::createImmutable($ROOT_DIR);
 $dotenv->load();
 
 function require_env(string $key): string {
-  $val = getenv($key);
-  if ($val === false || trim($val) === '') {
+$val = $_ENV[$key] ?? getenv($key);
+if ($val === false || $val === null || trim((string)$val) === '') {
     throw new RuntimeException("Variable de entorno requerida no definida: {$key}");
   }
   return (string)$val;
