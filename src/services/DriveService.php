@@ -13,9 +13,6 @@ class DriveService
   private array $requestTimestamps = [];
   private int $maxRequestsPerMinute = 10;
 
-  private ?string $pendientesFolderId = null;
-  private ?string $rechazadosFolderId = null;
-
   public function __construct()
   {
     require_once dirname(__DIR__, 2) . '/config/config.php';
@@ -57,128 +54,82 @@ class DriveService
     $this->requestTimestamps[] = microtime(true);
   }
 
-  private function getChildFolderIdByName(string $childName): ?string
-  {
-    $rootId = GOOGLE_DRIVE_FOLDER_ID;
-
-    $q = sprintf(
-      "name = '%s' and '%s' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder'",
-      str_replace("'", "\\'", $childName),
-      str_replace("'", "\\'", $rootId)
-    );
-
-    $this->rateLimit();
-    $res = $this->drive->files->listFiles([
-      'q' => $q,
-      'spaces' => 'drive',
-      'pageSize' => 10,
-      'fields' => 'files(id, name)',
-    ]);
-
-    foreach ($res->getFiles() as $folder) {
-      return (string)$folder->getId();
-    }
-
-    return null;
-  }
-
-  private function getPendientesFolderId(): string
-  {
-    if ($this->pendientesFolderId !== null) {
-      return $this->pendientesFolderId;
-    }
-
-    $this->pendientesFolderId = $this->getChildFolderIdByName('pendientes');
-    if ($this->pendientesFolderId === null) {
-      throw new RuntimeException("No se encontró la subcarpeta 'pendientes' bajo GOOGLE_DRIVE_FOLDER_ID.");
-    }
-
-    return $this->pendientesFolderId;
-  }
-
-  private function getRechazadosFolderId(): ?string
-  {
-    if ($this->rechazadosFolderId !== null) {
-      return $this->rechazadosFolderId;
-    }
-
-    $this->rechazadosFolderId = $this->getChildFolderIdByName('rechazados');
-    return $this->rechazadosFolderId;
-  }
-
   private function isAllowedMimeType(string $mimeType): bool
   {
     return in_array($mimeType, DRIVE_ALLOWED_MIME_TYPES, true);
   }
 
   /**
-   * Lista todos los archivos en /pendientes/ con status 'activo'.
-   * Nota: Google Drive no tiene un campo "status" nativo; este sistema asume que
-   * esos archivos están en la subcarpeta 'pendientes' y se filtra por tipo MIME.
+   * Lista archivos nuevos bajo GOOGLE_DRIVE_FOLDER_ID: primero las subcarpetas
+   * (una por participante), luego los archivos directos en cada una.
+   * Solo incluye tipos MIME permitidos (DRIVE_ALLOWED_MIME_TYPES).
    *
    * Devuelve array con id, name, mimeType, createdTime, parents.
    */
   public function listNewFiles(): array
   {
-    $pendientesFolderId = $this->getPendientesFolderId();
-    $rechazadosFolderId = $this->getRechazadosFolderId();
-
+    $rootId = GOOGLE_DRIVE_FOLDER_ID;
     $allowed = [];
-    $pageToken = null;
 
-    // Traemos todos los archivos en la carpeta 'pendientes' y filtramos por MIME.
+    $folderPageToken = null;
     do {
       $this->rateLimit();
-      $params = [
-        'q' => sprintf("'%s' in parents and trashed = false", addslashes($pendientesFolderId)),
+      $folderParams = [
+        'q' => sprintf(
+          "'%s' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder'",
+          addslashes($rootId)
+        ),
         'spaces' => 'drive',
         'pageSize' => 1000,
-        'fields' => 'nextPageToken, files(id, name, mimeType, createdTime, parents)',
+        'fields' => 'nextPageToken, files(id)',
       ];
-      if ($pageToken !== null) {
-        $params['pageToken'] = $pageToken;
+      if ($folderPageToken !== null) {
+        $folderParams['pageToken'] = $folderPageToken;
       }
 
-      $res = $this->drive->files->listFiles($params);
+      $folderRes = $this->drive->files->listFiles($folderParams);
 
-      foreach ($res->getFiles() as $file) {
-        $fileId = (string)$file->getId();
-        $mimeType = (string)$file->getMimeType();
-        $name = (string)$file->getName();
-        $createdTime = (string)$file->getCreatedTime();
+      foreach ($folderRes->getFiles() as $participantFolder) {
+        $participantFolderId = (string)$participantFolder->getId();
 
-        $parents = $file->getParents() ? array_map('strval', $file->getParents()) : [];
-        $parentFolderId = $parents[0] ?? null;
-
-        if ($this->isAllowedMimeType($mimeType)) {
-          $allowed[] = [
-            'id' => $fileId,
-            'name' => $name,
-            'mimeType' => $mimeType,
-            'createdTime' => $createdTime,
-            'parents' => $parents,
-          ];
-          continue;
-        }
-
-        // Rechazar/limpiar tipos no permitidos.
-        if ($rechazadosFolderId !== null && $parentFolderId !== null) {
+        $filePageToken = null;
+        do {
           $this->rateLimit();
-          try {
-            $this->drive->files->update($fileId, null, [
-              'addParents' => $rechazadosFolderId,
-              'removeParents' => $parentFolderId,
-              'fields' => 'id',
-            ]);
-          } catch (GoogleServiceException $e) {
-            // Silencioso: si falla la reasignación, al menos no encolamos el archivo.
-            error_log('DriveService reject mime move error: ' . $e->getMessage());
+          $fileParams = [
+            'q' => sprintf("'%s' in parents and trashed = false", addslashes($participantFolderId)),
+            'spaces' => 'drive',
+            'pageSize' => 1000,
+            'fields' => 'nextPageToken, files(id, name, mimeType, createdTime, parents)',
+          ];
+          if ($filePageToken !== null) {
+            $fileParams['pageToken'] = $filePageToken;
           }
-        }
+
+          $fileRes = $this->drive->files->listFiles($fileParams);
+
+          foreach ($fileRes->getFiles() as $file) {
+            $mimeType = (string)$file->getMimeType();
+            if (!$this->isAllowedMimeType($mimeType)) {
+              continue;
+            }
+
+            $parents = $file->getParents() ? array_map('strval', $file->getParents()) : [];
+
+            $allowed[] = [
+              'id' => (string)$file->getId(),
+              'name' => (string)$file->getName(),
+              'mimeType' => $mimeType,
+              'createdTime' => (string)$file->getCreatedTime(),
+              'parents' => $parents,
+            ];
+          }
+
+          $filePageToken = $fileRes->getNextPageToken();
+        } while ($filePageToken !== null);
       }
 
-      $pageToken = $res->getNextPageToken();
-    } while ($pageToken !== null);
+      $folderPageToken = $folderRes->getNextPageToken();
+    } while ($folderPageToken !== null);
 
     return $allowed;
   }
