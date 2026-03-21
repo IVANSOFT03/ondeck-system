@@ -147,26 +147,24 @@ class DriveService
 
     $this->rateLimit();
     try {
-      $request = $this->drive->files->get($fileId, ['alt' => 'media']);
-      $content = $request->execute();
+      $response = $this->drive->files->get($fileId, ['alt' => 'media']);
 
-      if (is_string($content)) {
-        file_put_contents($destPath, $content);
-        return file_exists($destPath) && filesize($destPath) > 0;
+      if (is_string($response)) {
+        $content = $response;
+      } elseif (is_object($response) && method_exists($response, 'getBody')) {
+        // google/apiclient + Guzzle: cuerpo de la respuesta HTTP (media).
+        $content = (string) $response->getBody();
+      } else {
+        error_log('DriveService downloadFile: tipo de respuesta no soportado para fileId=' . $fileId);
+        return false;
       }
 
-      // Manejo común: StreamInterface (o similar) en vez de string.
-      if (is_object($content) && method_exists($content, 'getContents')) {
-        $bytes = $content->getContents();
-        if (!is_string($bytes) || $bytes === '') {
-          return false;
-        }
-        file_put_contents($destPath, $bytes);
-        return file_exists($destPath) && filesize($destPath) > 0;
+      if ($content === '') {
+        return false;
       }
 
-      // Si no es string ni stream conocido, fallamos.
-      return false;
+      file_put_contents($destPath, $content);
+      return file_exists($destPath) && filesize($destPath) > 0;
     } catch (GoogleServiceException $e) {
       // 404: archivo ya eliminado => continuar silenciosamente.
       if ((string)$e->getCode() === '404' || stripos($e->getMessage(), '404') !== false) {
