@@ -1,5 +1,6 @@
 vendor/
 .env
+.env.example
 
 # Credentials / estado local
 config/credentials/google-service-account.json
