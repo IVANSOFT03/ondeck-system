@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+set_time_limit(300);
+ini_set('max_execution_time', '300');
+
 require_once dirname(__DIR__, 2) . '/config/config.php';
 
 require_once dirname(__DIR__, 2) . '/src/db/Database.php';

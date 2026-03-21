@@ -290,10 +290,10 @@ class TikTokService
     }
 
     // 3) Polling: upload a inbox → SEND_TO_USER_INBOX; si el usuario publica luego desde la app → PUBLISH_COMPLETE
-    $maxAttempts = 20;
+    $maxAttempts = 10;
     for ($attempt = 0; $attempt < $maxAttempts; $attempt++) {
       if ($attempt > 0) {
-        sleep(5);
+        sleep(3);
       }
 
       $statusResp = $this->requestJson('POST', '/v2/post/publish/status/fetch/', [
@@ -363,7 +363,7 @@ class TikTokService
       'Content-Length: ' . $size,
       'Content-Range: bytes ' . $firstByte . '-' . $lastByte . '/' . $size,
     ]);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 180);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 120);
 
     $resp = curl_exec($ch);
     $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
