@@ -48,8 +48,8 @@ HTML;
       $mail->send();
       return true;
     } catch (Exception $e) {
-      error_log('MailService sendPublishedNotification error: ' . $e->getMessage());
-      return false;
+      error_log('MailService error: ' . $e->getMessage());
+      throw new \RuntimeException($e->getMessage(), 0, $e);
     }
   }
 }
