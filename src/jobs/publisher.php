@@ -36,8 +36,8 @@ try {
   $tiktok = new TikTokService();
   $mail = new MailService();
 
-  // 10. Buscar el registro mas antiguo con status='pending'
-  $stmt = $db->query("SELECT * FROM queue WHERE status='pending' ORDER BY created_at ASC LIMIT 1");
+  // 10. Buscar el registro mas antiguo con status='approved'
+  $stmt = $db->query("SELECT * FROM queue WHERE status='approved' ORDER BY created_at ASC LIMIT 1");
   $job = $stmt ? $stmt->fetch() : false;
 
   if (!$job) {
@@ -47,7 +47,7 @@ try {
   $jobId = (int)$job['id'];
 
   // 12. UPDATE status='processing' antes de llamar TikTok (evitar doble publicacion)
-  $update = $db->prepare("UPDATE queue SET status='processing' WHERE id=? AND status='pending'");
+  $update = $db->prepare("UPDATE queue SET status='processing' WHERE id=? AND status='approved'");
   $update->execute([$jobId]);
   if ($update->rowCount() !== 1) {
     exit(0);

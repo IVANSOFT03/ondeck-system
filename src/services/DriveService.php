@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Google\Client;
 use Google\Service\Drive;
+use Google\Service\Drive\DriveFile;
 use Google\Service\Exception as GoogleServiceException;
 
 class DriveService
@@ -12,6 +13,8 @@ class DriveService
 
   private array $requestTimestamps = [];
   private int $maxRequestsPerMinute = 10;
+
+  private ?string $procesadosFolderId = null;
 
   public function __construct()
   {
@@ -57,6 +60,51 @@ class DriveService
   private function isAllowedMimeType(string $mimeType): bool
   {
     return in_array($mimeType, DRIVE_ALLOWED_MIME_TYPES, true);
+  }
+
+  /**
+   * ID de la subcarpeta "procesados" bajo GOOGLE_DRIVE_FOLDER_ID (la crea si no existe).
+   */
+  private function getProcesadosFolderId(): string
+  {
+    if ($this->procesadosFolderId !== null) {
+      return $this->procesadosFolderId;
+    }
+
+    $rootId = GOOGLE_DRIVE_FOLDER_ID;
+    $q = sprintf(
+      "name = '%s' and '%s' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder'",
+      str_replace("'", "\\'", 'procesados'),
+      str_replace("'", "\\'", $rootId)
+    );
+
+    $this->rateLimit();
+    $res = $this->drive->files->listFiles([
+      'q' => $q,
+      'spaces' => 'drive',
+      'pageSize' => 10,
+      'fields' => 'files(id, name)',
+      'supportsAllDrives' => true,
+      'includeItemsFromAllDrives' => true,
+    ]);
+
+    foreach ($res->getFiles() as $folder) {
+      $this->procesadosFolderId = (string)$folder->getId();
+      return $this->procesadosFolderId;
+    }
+
+    $this->rateLimit();
+    $meta = new DriveFile([
+      'name' => 'procesados',
+      'mimeType' => 'application/vnd.google-apps.folder',
+      'parents' => [$rootId],
+    ]);
+    $created = $this->drive->files->create($meta, [
+      'fields' => 'id',
+      'supportsAllDrives' => true,
+    ]);
+    $this->procesadosFolderId = (string)$created->getId();
+    return $this->procesadosFolderId;
   }
 
   /**
@@ -178,22 +226,45 @@ class DriveService
   }
 
   /**
-   * Elimina el archivo de Drive permanentemente.
+   * Mueve el archivo a la subcarpeta "procesados" bajo GOOGLE_DRIVE_FOLDER_ID (no lo borra).
    * Llamar solo despues de confirmar publicacion exitosa en TikTok.
    */
   public function deleteFile(string $fileId): void
   {
-    $this->rateLimit();
     try {
-      $this->drive->files->delete($fileId);
-    } catch (GoogleServiceException $e) {
-      // 404 => archivo ya eliminado => continuar.
-      if ((string)$e->getCode() === '404' || stripos($e->getMessage(), '404') !== false) {
-        error_log('DriveService deleteFile 404: ' . $fileId);
+      $this->rateLimit();
+      $file = $this->drive->files->get($fileId, [
+        'fields' => 'id,parents',
+        'supportsAllDrives' => true,
+      ]);
+
+      $parents = $file->getParents() ? array_map('strval', $file->getParents()) : [];
+      if ($parents === []) {
+        error_log('DriveService deleteFile (mover): sin parents para fileId=' . $fileId);
         return;
       }
 
-      error_log('DriveService deleteFile error: ' . $e->getMessage());
+      $procesadosId = $this->getProcesadosFolderId();
+      if (count($parents) === 1 && $parents[0] === $procesadosId) {
+        return;
+      }
+
+      $removeParents = implode(',', $parents);
+
+      $this->rateLimit();
+      $this->drive->files->update($fileId, new DriveFile(), [
+        'addParents' => $procesadosId,
+        'removeParents' => $removeParents,
+        'fields' => 'id',
+        'supportsAllDrives' => true,
+      ]);
+    } catch (GoogleServiceException $e) {
+      if ((string)$e->getCode() === '404' || stripos($e->getMessage(), '404') !== false) {
+        error_log('DriveService deleteFile (mover) 404: ' . $fileId);
+        return;
+      }
+
+      error_log('DriveService deleteFile (mover) error: ' . $e->getMessage());
       throw $e;
     }
   }

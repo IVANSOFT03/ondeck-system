@@ -5,7 +5,8 @@ declare(strict_types=1);
 // Punto de entrada para cargar .env y exponer constantes globales.
 // Requiere que exista `vendor/autoload.php` (ejecutar `composer install` en `tiktok-system/`).
 
-$ROOT_DIR = dirname(__DIR__);
+   $ROOT_DIR = dirname(__DIR__);
+$ROOT_DIR = '/home/u617396989/domains/ondeck.nodo-digital.com/tiktok-system';
 
 if (!file_exists($ROOT_DIR . '/vendor/autoload.php')) {
   throw new RuntimeException('Falta vendor/autoload.php. Ejecuta `composer install` en tiktok-system/.');
